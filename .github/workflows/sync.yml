@@ -1,0 +1,49 @@
+name: Sync forks
+
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Only this repository (empty = all)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Report only, change nothing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: fork-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Sync forks
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+          ONLY: ${{ inputs.only }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          COPY_RELEASES: ${{ vars.COPY_RELEASES }}
+        run: |
+          $a = @{}
+          if ($env:ONLY) { $a.Only = $env:ONLY }
+          if ($env:DRY_RUN -eq 'true') { $a.DryRun = $true }
+          if ($env:COPY_RELEASES -ne 'true') { $a.SkipReleases = $true }
+          ./Sync-OpenKnxForks.ps1 @a
+      - name: Keep the schedule enabled
+        # GitHub disables a schedule in a public repository after 60 days without activity.
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/sync.yml/enable"
